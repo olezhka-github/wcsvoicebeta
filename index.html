@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WCS Voice</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    h1 {
+      text-align: center;
+    }
+    
+    .control-panel {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    
+    input {
+      flex: 1;
+      min-width: 200px;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    
+    button {
+      padding: 8px 16px;
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    
+    button:hover {
+      background-color: #3367d6;
+    }
+    
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    
+    .video-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+    
+    .video-box {
+      flex: 1;
+      min-width: 300px;
+    }
+    
+    video {
+      width: 100%;
+      max-width: 500px;
+      background-color: #222;
+      border-radius: 8px;
+    }
+    
+    #connectionStatus {
+      text-align: center;
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    
+    .connected {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    
+    .disconnected {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    
+    .connecting {
+      background-color: #fff3cd;
+      color: #856404;
+    }
+    
+    #peerId {
+      font-weight: bold;
+      color: #4285f4;
+    }
+    
+    #notifications {
+      margin-top: 20px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>WCS Voice - безпечні відеорозмови</h1>
+  
+  <div id="connectionStatus" class="disconnected">Від'єднано</div>
+  
+  <div class="control-panel">
+    <div>
+      <p>Ваш ID: <span id="peerId">Генерується...</span></p>
+    </div>
+    <input type="text" id="remotePeerId" placeholder="Введіть ID співбесідника">
+    <button id="connectBtn">Connect</button>
+    <button id="startVideoBtn">Ввімкнути камеру</button>
+    <button id="hangupBtn" disabled>Покинути дзвінок</button>
+  </div>
+  
+  <div class="video-container">
+    <div class="video-box">
+      <h3>Ви</h3>
+      <video id="localVideo" autoplay muted playsinline></video>
+    </div>
+    <div class="video-box">
+      <h3>Співбесідник</h3>
+      <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+  </div>
+  
+  <div id="notifications">
+    <p>Connection logs will appear here...</p>
+  </div>
+  
+  <!-- Load PeerJS from CDN -->
+  <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
+  
+  <script>
+    // DOM Elements
+    const peerIdDisplay = document.getElementById('peerId');
+    const remoteIdInput = document.getElementById('remotePeerId');
+    const connectBtn = document.getElementById('connectBtn');
+    const startVideoBtn = document.getElementById('startVideoBtn');
+    const hangupBtn = document.getElementById('hangupBtn');
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const connectionStatus = document.getElementById('connectionStatus');
+    const notifications = document.getElementById('notifications');
+    
+    // Variables
+    let peer;
+    let localStream;
+    let currentCall;
+    
+    // Helper function to add notification
+    function addNotification(message) {
+      const p = document.createElement('p');
+      p.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+      notifications.appendChild(p);
+      notifications.scrollTop = notifications.scrollHeight;
+    }
+    
+    // Update connection status
+    function updateStatus(status, message) {
+      connectionStatus.className = status;
+      connectionStatus.textContent = message;
+    }
+    
+    // Initialize PeerJS
+    function initPeer() {
+      try {
+        // Create a new Peer with a random ID
+        peer = new Peer({
+          host: 'localhost',
+          port: 3000,
+          path: '/'
+        });
+        
+        // When peer is open (ready)
+        peer.on('open', (id) => {
+          peerIdDisplay.textContent = id;
+          updateStatus('connected', 'Connected to server - ready to call');
+          addNotification('Connected to PeerJS server');
+          connectBtn.disabled = false;
+        });
+        
+        // Handle incoming calls
+        peer.on('call', (call) => {
+          if (confirm(`Incoming call from ${call.peer}. Answer?`)) {
+            // Answer the call with our local stream
+            if (localStream) {
+              call.answer(localStream);
+              handleCall(call);
+            } else {
+              // If we don't have local stream yet, get it first
+              navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                .then((stream) => {
+                  localStream = stream;
+                  localVideo.srcObject = stream;
+                  call.answer(stream);
+                  handleCall(call);
+                })
+                .catch((err) => {
+                  addNotification(`Error getting media: ${err.message}`);
+                  alert(`Cannot answer call: ${err.message}`);
+                });
+            }
+          } else {
+            call.close();
+            addNotification(`Rejected call from ${call.peer}`);
+          }
+        });
+        
+        // Handle errors
+        peer.on('error', (err) => {
+          updateStatus('disconnected', `Error: ${err.type}`);
+          addNotification(`PeerJS error: ${err.type}`);
+          
+          if (err.type === 'peer-unavailable') {
+            alert('The peer you tried to connect to is not available');
+          } else if (err.type === 'network' || err.type === 'disconnected') {
+            alert('Network error. Check your connection to the PeerJS server');
+            initPeer(); // Try to reconnect
+          }
+        });
+        
+        peer.on('disconnected', () => {
+          updateStatus('disconnected', 'Disconnected from server');
+          addNotification('Disconnected from PeerJS server');
+          peer.reconnect();
+        });
+        
+        peer.on('close', () => {
+          updateStatus('disconnected', 'Connection closed');
+          addNotification('PeerJS connection closed');
+          peer = null;
+          setTimeout(initPeer, 3000); // Try to reconnect after 3 seconds
+        });
+        
+      } catch (err) {
+        updateStatus('disconnected', `Failed to create peer: ${err.message}`);
+        addNotification(`Failed to create peer: ${err.message}`);
+        setTimeout(initPeer, 3000); // Try again after 3 seconds
+      }
+    }
+    
+    // Handle active call
+    function handleCall(call) {
+      currentCall = call;
+      updateStatus('connecting', `Connecting to ${call.peer}...`);
+      
+      // Handle stream event
+      call.on('stream', (remoteStream) => {
+        remoteVideo.srcObject = remoteStream;
+        updateStatus('connected', `Connected to ${call.peer}`);
+        addNotification(`Call connected with ${call.peer}`);
+        hangupBtn.disabled = false;
+      });
+      
+      // Handle call close event
+      call.on('close', () => {
+        updateStatus('connected', 'Call ended');
+        addNotification('Call ended');
+        remoteVideo.srcObject = null;
+        hangupBtn.disabled = true;
+      });
+      
+      call.on('error', (err) => {
+        updateStatus('disconnected', `Call error: ${err.message}`);
+        addNotification(`Call error: ${err.message}`);
+        hangupBtn.disabled = true;
+        currentCall = null;
+      });
+    }
+    
+    // Start local video
+    startVideoBtn.addEventListener('click', () => {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then((stream) => {
+          localStream = stream;
+          localVideo.srcObject = stream;
+          startVideoBtn.disabled = true;
+          addNotification('Local video started');
+        })
+        .catch((err) => {
+          addNotification(`Error getting media: ${err.message}`);
+          alert(`Could not access camera/microphone: ${err.message}`);
+        });
+    });
+    
+    // Connect to a peer
+    connectBtn.addEventListener('click', () => {
+      const remotePeerId = remoteIdInput.value.trim();
+      
+      if (!remotePeerId) {
+        alert('Please enter a peer ID');
+        return;
+      }
+      
+      if (!localStream) {
+        alert('Please start your video first');
+        return;
+      }
+      
+      // Call the specified peer
+      try {
+        const call = peer.call(remotePeerId, localStream);
+        handleCall(call);
+        addNotification(`Calling ${remotePeerId}...`);
+      } catch (err) {
+        addNotification(`Error making call: ${err.message}`);
+        alert(`Error making call: ${err.message}`);
+      }
+    });
+    
+    // Hang up the call
+    hangupBtn.addEventListener('click', () => {
+      if (currentCall) {
+        currentCall.close();
+        currentCall = null;
+        remoteVideo.srcObject = null;
+        updateStatus('connected', 'Call ended');
+        hangupBtn.disabled = true;
+        addNotification('You ended the call');
+      }
+    });
+    
+    // Initialize on page load
+    window.addEventListener('load', initPeer);
+  </script>
+</body>
+</html>
