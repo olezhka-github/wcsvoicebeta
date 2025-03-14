@@ -241,233 +241,94 @@
       try {
         peer = new Peer({
           host: 'peerwcs1dot3.onrender.com',
-        // port: 443,
           path: '/'
         });
         
         peer.on('open', (id) => {
           peerIdDisplay.textContent = id;
-          updateStatus('connected', 'Підключено до сервера - готові до дзвінка');
-          addNotification('Підключено до PeerJS сервера');
-          connectBtn.disabled = false;
+          updateStatus('disconnected', 'Від’єднано');
+          addNotification(`Peer ID: ${id}`);
         });
         
-        // Обробка вхідних дзвінків
         peer.on('call', (call) => {
-          if (confirm(`Вхідний дзвінок від ${call.peer}. Відповісти?`)) {
-            if (localStream) {
-              call.answer(localStream);
-              handleCall(call);
-            } else {
-              navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-                .then((stream) => {
-                  localStream = stream;
-                  localVideo.srcObject = stream;
-                  toggleMicBtn.disabled = false;
-                  toggleCameraBtn.disabled = false;
-                  updateMicIcon();
-                  updateCameraIcon();
-                  updateCameraPlaceholder();
-                  call.answer(stream);
-                  handleCall(call);
-                })
-                .catch((err) => {
-                  addNotification(`Помилка доступу до медіа: ${err.message}`);
-                  alert(`Не вдалося відповісти на дзвінок: ${err.message}`);
-                });
-            }
-          } else {
-            call.close();
-            addNotification(`Відхилено дзвінок від ${call.peer}`);
-          }
+          updateStatus('connecting', 'З'єднання...');
+          call.answer(localStream);
+          call.on('stream', (remoteStream) => {
+            remoteVideo.srcObject = remoteStream;
+            updateStatus('connected', `З'єднано з ${call.peer}`);
+            hangupBtn.disabled = false;
+          });
         });
         
         peer.on('error', (err) => {
-          updateStatus('disconnected', `Помилка: ${err.type}`);
-          addNotification(`PeerJS помилка: ${err.type}`);
-          if (err.type === 'peer-unavailable') {
-            alert('Співбесідник, до якого ви намагаєтеся підключитись, недоступний');
-          } else if (err.type === 'network' || err.type === 'disconnected') {
-            alert('Мережева помилка. Перевірте підключення до PeerJS сервера');
-            initPeer();
-          }
-        });
-        
-        peer.on('disconnected', () => {
-          updateStatus('disconnected', 'Від\'єднано від сервера');
-          addNotification('Від\'єднано від PeerJS сервера');
-          peer.reconnect();
-        });
-        
-        peer.on('close', () => {
-          updateStatus('disconnected', 'З\'єднання закрито');
-          addNotification('PeerJS з\'єднання закрито');
-          peer = null;
-          setTimeout(initPeer, 3000);
+          console.error(err);
+          addNotification('Помилка PeerJS: ' + err);
         });
         
       } catch (err) {
-        updateStatus('disconnected', `Не вдалося створити peer: ${err.message}`);
-        addNotification(`Не вдалося створити peer: ${err.message}`);
-        setTimeout(initPeer, 3000);
+        addNotification('Error initializing Peer: ' + err);
       }
     }
     
-    // Обробка активного дзвінка
-    function handleCall(call) {
-      currentCall = call;
-      updateStatus('connecting', `Підключення до ${call.peer}...`);
-      
-      call.on('stream', (remoteStream) => {
-        remoteVideo.srcObject = remoteStream;
-        updateStatus('connected', `Підключено до ${call.peer}`);
-        addNotification(`З'єднання з ${call.peer} встановлено`);
-        hangupBtn.disabled = false;
-      });
-      
-      call.on('close', () => {
-        updateStatus('connected', 'Дзвінок завершено');
-        addNotification('Дзвінок завершено');
-        remoteVideo.srcObject = null;
-        hangupBtn.disabled = true;
-      });
-      
-      call.on('error', (err) => {
-        updateStatus('disconnected', `Помилка дзвінка: ${err.message}`);
-        addNotification(`Помилка дзвінка: ${err.message}`);
-        hangupBtn.disabled = true;
-        currentCall = null;
-      });
-    }
-    
-    // Запуск локального відео та аудіо
-    startVideoBtn.addEventListener('click', () => {
-      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        .then((stream) => {
-          localStream = stream;
-          localVideo.srcObject = stream;
-          startVideoBtn.disabled = true;
-          toggleMicBtn.disabled = false;
-          toggleCameraBtn.disabled = false;
-          updateMicIcon();
-          updateCameraIcon();
-          updateCameraPlaceholder();
-          addNotification('Локальне відео запущено');
-        })
-        .catch((err) => {
-          addNotification(`Помилка доступу до медіа: ${err.message}`);
-          alert(`Не вдалося отримати доступ до камери/мікрофону: ${err.message}`);
-        });
-    });
-    
-    // Перемикання мікрофону
-    toggleMicBtn.addEventListener('click', () => {
-      if (!localStream) return;
-      localStream.getAudioTracks().forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      updateMicIcon();
-      addNotification(`Мікрофон ${localStream.getAudioTracks()[0].enabled ? 'увімкнено' : 'вимкнено'}`);
-    });
-    
-    // Перемикання камери
-    toggleCameraBtn.addEventListener('click', () => {
-      if (!localStream) return;
-      localStream.getVideoTracks().forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      updateCameraIcon();
-      updateCameraPlaceholder();
-      addNotification(`Камера ${localStream.getVideoTracks()[0].enabled ? 'увімкнена' : 'вимкнена'}`);
-    });
-    
-    // Оновлення SVG-іконок для мікрофону та камери
-    function updateMicIcon() {
-      if (localStream && localStream.getAudioTracks().length > 0) {
-        const micOn = localStream.getAudioTracks()[0].enabled;
-        if (micOn) {
-          toggleMicBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" 
-           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" 
-           class="feather feather-mic">
-            <path d="M12 1v11"></path>
-            <path d="M19 11a7 7 0 0 1-14 0"></path>
-            <line x1="12" y1="22" x2="12" y2="16"></line>
-            <line x1="8" y1="22" x2="16" y2="22"></line>
-          </svg>`;
-        } else {
-          toggleMicBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" 
-           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" 
-           class="feather feather-mic-off">
-            <path d="M1 1l22 22"></path>
-            <path d="M9 9v3a3 3 0 0 0 5.1 2.1"></path>
-            <path d="M17.9 17.9A7 7 0 0 1 6 11"></path>
-            <line x1="12" y1="19" x2="12" y2="23"></line>
-            <line x1="8" y1="23" x2="16" y2="23"></line>
-          </svg>`;
-        }
-      }
-    }
-    
-    function updateCameraIcon() {
-      if (localStream && localStream.getVideoTracks().length > 0) {
-        const cameraOn = localStream.getVideoTracks()[0].enabled;
-        if (cameraOn) {
-          toggleCameraBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" 
-           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" 
-           class="feather feather-video">
-            <polygon points="23 7 16 12 23 17 23 7"></polygon>
-            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-          </svg>`;
-        } else {
-          toggleCameraBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" 
-           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" 
-           class="feather feather-video-off">
-            <line x1="1" y1="1" x2="23" y2="23"></line>
-            <path d="M21 21H3V3h7"></path>
-            <polygon points="23 7 16 12 23 17 23 7"></polygon>
-            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-          </svg>`;
-        }
-      }
-    }
-    
-    // Виклик до співбесідника
+    // Підключення до іншого піром
     connectBtn.addEventListener('click', () => {
-      const remotePeerId = remoteIdInput.value.trim();
-      
-      if (!remotePeerId) {
-        alert('Будь ласка, введіть ID співбесідника');
-        return;
+      const remoteId = remoteIdInput.value;
+      if (remoteId && localStream) {
+        const call = peer.call(remoteId, localStream);
+        currentCall = call;
+        call.on('stream', (remoteStream) => {
+          remoteVideo.srcObject = remoteStream;
+          updateStatus('connected', `З'єднано з ${call.peer}`);
+          hangupBtn.disabled = false;
+        });
+      } else {
+        addNotification('Будь ласка, введіть ID співбесідника та увімкніть відео');
       }
-      
-      if (!localStream) {
-        alert('Спочатку запустіть відео');
-        return;
-      }
-      
+    });
+    
+    // Ввімкнення відео
+    startVideoBtn.addEventListener('click', async () => {
       try {
-        const call = peer.call(remotePeerId, localStream);
-        handleCall(call);
-        addNotification(`Виконується дзвінок на ${remotePeerId}...`);
+        const constraints = {
+          video: true,
+          audio: true
+        };
+        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        localVideo.srcObject = localStream;
+        updateCameraPlaceholder();
+        toggleMicBtn.disabled = false;
+        toggleCameraBtn.disabled = false;
       } catch (err) {
-        addNotification(`Помилка виклику: ${err.message}`);
-        alert(`Помилка виклику: ${err.message}`);
+        addNotification('Не вдалося отримати доступ до камери: ' + err);
       }
+    });
+    
+    // Вимкнення/увімкнення мікрофону
+    toggleMicBtn.addEventListener('click', () => {
+      const audioTrack = localStream.getAudioTracks()[0];
+      audioTrack.enabled = !audioTrack.enabled;
+      toggleMicBtn.title = audioTrack.enabled ? 'Вимкнути мікрофон' : 'Увімкнути мікрофон';
+    });
+    
+    // Вимкнення/увімкнення камери
+    toggleCameraBtn.addEventListener('click', () => {
+      const videoTrack = localStream.getVideoTracks()[0];
+      videoTrack.enabled = !videoTrack.enabled;
+      updateCameraPlaceholder();
+      toggleCameraBtn.title = videoTrack.enabled ? 'Вимкнути камеру' : 'Увімкнути камеру';
     });
     
     // Завершення дзвінка
     hangupBtn.addEventListener('click', () => {
       if (currentCall) {
         currentCall.close();
-        currentCall = null;
-        remoteVideo.srcObject = null;
-        updateStatus('connected', 'Дзвінок завершено');
-        hangupBtn.disabled = true;
-        addNotification('Ви завершили дзвінок');
       }
+      updateStatus('disconnected', 'Від’єднано');
+      remoteVideo.srcObject = null;
+      hangupBtn.disabled = true;
     });
     
-    window.addEventListener('load', initPeer);
+    initPeer();
   </script>
 </body>
 </html>
