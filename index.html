@@ -251,7 +251,7 @@
         });
         
         peer.on('call', (call) => {
-          updateStatus('connecting', 'З'єднання...');
+          updateStatus('connecting', 'З`єднання...');
           call.answer(localStream);
           call.on('stream', (remoteStream) => {
             remoteVideo.srcObject = remoteStream;
